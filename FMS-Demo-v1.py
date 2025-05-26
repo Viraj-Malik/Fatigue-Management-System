@@ -97,8 +97,14 @@ if __name__ == '__main__':
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor(args["shape_predictor"])
 
-    print("[INFO] Starting video stream...")
+    print("[INFO] Starting video stream in headless mode...")
+    # Set environment variable to prevent GUI backend from loading
+    os.environ['OPENCV_VIDEOIO_PRIORITY_MSMF'] = '0'
+    # Initialize video capture with optimized settings for headless
     vs = cv2.VideoCapture(args["webcam"])
+    vs.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    vs.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    vs.set(cv2.CAP_PROP_FPS, 15)
     time.sleep(1.0)  # Allow camera to warm up
 
     try:
@@ -211,9 +217,15 @@ if __name__ == '__main__':
                     cv2.putText(frame, current_alert_message, (text_x, text_y),
                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-            cv2.imshow("Drowsiness Detector", frame)
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord("q") or key == 27:  # 'q' or ESC
+            # No GUI in headless mode - just process frames
+            # Add a small delay to prevent high CPU usage
+            time.sleep(0.01)
+            
+            # Check for exit condition (you can modify this to use a different exit condition)
+            # For example, you could use a file watcher or network signal
+            if os.path.exists('stop_fms.txt'):
+                print("[INFO] Stop file detected. Exiting...")
+                os.remove('stop_fms.txt')
                 break
 
     finally:
