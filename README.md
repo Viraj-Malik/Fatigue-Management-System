@@ -21,11 +21,11 @@ The `start_fms.sh` script automates the installation of system dependencies, Pyt
     Open a new terminal window and run the following command.
     ```chmod +x setup_fms_project.sh```
 
-3. **Setup on Startup Execution**
+3. **Setup on Startup Execution:**
     Type the following command in a terminal window
     ```crontab -e```
     Navigate to the bottom of this file and add the following 
     ```@reboot sudo /home/$USER-ID$/.start_fms.sh > /home/$USER-ID$/fms_cron_startup.log 2>&1```
 
-4. **Validate**
-    Setup is now complete, disconnect the monitor and all other devices. Connect the Raspberry Pi to power and the webcam. Light will blink blue in 30-45 seconds. 
+4. **Validate:**
+    Setup is now complete. Disconnect the monitor and all other devices. Connect the Raspberry Pi to power and the webcam. Light will blink blue in 30-45 seconds. 
