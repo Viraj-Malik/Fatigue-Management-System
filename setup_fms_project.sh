@@ -64,8 +64,8 @@ echo "[INFO] Activating virtual environment to install packages..."
 echo "[INFO] Upgrading pip in the virtual environment..."
 "${PROJECT_DIR}/${VENV_NAME}/bin/pip" install --upgrade pip
 
-echo "[INFO] Installing Python libraries..."
-"${PROJECT_DIR}/${VENV_NAME}/bin/pip" install numpy scipy imutils dlib opencv-python
+echo "[INFO] Installing Python packages (numpy, opencv-python, imutils, dlib, scipy, gpiozero)..."
+"${PROJECT_DIR}/${VENV_NAME}/bin/pip" install numpy opencv-python imutils dlib scipy gpiozero
 
 # --------------------------------------------------------------------------
 # 5. Download and Extract dlib's Facial Landmark Predictor

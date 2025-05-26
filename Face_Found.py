@@ -3,15 +3,15 @@ from gpiozero import LED
 import time
 import sys
 
-# GPIO setup - using GPIO 18 (BCM numbering)
-LED_PIN = 18
+# GPIO setup - using GPIO 17 (BCM numbering)
+LED_PIN = 17
 
 try:
     # Turn on the LED
     led = LED(LED_PIN, active_high=True, initial_value=False)
     led.on()
-    # On for 5 Seconds 
-    time.sleep(3)
+    # delay
+    time.sleep(0.5)
     
     # LED Close
     led.close()

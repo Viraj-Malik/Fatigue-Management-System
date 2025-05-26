@@ -9,6 +9,7 @@ import dlib
 import cv2
 from collections import deque
 import os
+import subprocess
 
 # --- Global Variables & Constants ---
 EYE_AR_THRESH = 0.25
@@ -25,6 +26,7 @@ eye_counter = 0
 yawn_counter = 0
 alert_active_drowsy = False
 alert_active_yawn = False
+alert_process = None
 
 def eye_aspect_ratio(eye):
     A = dist.euclidean(eye[1], eye[5])
@@ -54,6 +56,34 @@ def lip_distance(shape):
     distance = abs(top_mean[1] - low_mean[1])
     return distance
 
+def trigger_alert():
+    """Non-blocking function to trigger the alert system"""
+    global alert_process
+    try:
+        # Start a new alert process
+        alert_process = subprocess.Popen(
+            ["sudo", "python3", "alert_sys_v1.py"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+    except Exception as e:
+        print(f"Failed to start alert system: {e}")
+        
+    
+
+def face_alert():
+    """Non-blocking function to trigger the alert system"""
+    global alert_process
+    try:
+        alert_process = subprocess.Popen(
+            ["sudo", "python3", "Face_Found.py"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+    except Exception as e:
+        print(f"Failed to start alert system: {e}")
+        
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument("-w", "--webcam", type=int, default=0,
@@ -71,118 +101,127 @@ if __name__ == '__main__':
     vs = cv2.VideoCapture(args["webcam"])
     time.sleep(1.0)  # Allow camera to warm up
 
-    while True:
-        ret, frame = vs.read()
-        if not ret:
-            print("[INFO] Failed to grab frame or end of stream. Exiting...")
-            break
+    try:
+        while True:
+            ret, frame = vs.read()
+            if not ret:
+                print("[INFO] Failed to grab frame or end of stream. Exiting...")
+                break
 
-        frame = imutils.resize(frame, width=450)
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            frame = imutils.resize(frame, width=450)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        rects = detector(gray, 0)
-        face_detected_this_frame = len(rects) > 0
-        ear = 0.3
-        lip_dist = 0
-        smoothed_ear = ear
+            rects = detector(gray, 0)
+            face_detected_this_frame = len(rects) > 0
+            ear = 0.3
+            lip_dist = 0
+            smoothed_ear = ear
 
-        for rect in rects:
-            shape = predictor(gray, rect)
-            shape = face_utils.shape_to_np(shape)
+            for rect in rects:
+                shape = predictor(gray, rect)
+                shape = face_utils.shape_to_np(shape)
 
-            ear_data = final_ear(shape)
-            ear = ear_data[0]
-            leftEye = ear_data[1]
-            rightEye = ear_data[2]
+                ear_data = final_ear(shape)
+                ear = ear_data[0]
+                leftEye = ear_data[1]
+                rightEye = ear_data[2]
 
-            ear_history.append(ear)
-            if len(ear_history) == EAR_SMOOTHING_WINDOW:
-                smoothed_ear = np.mean(ear_history)
+                ear_history.append(ear)
+                if len(ear_history) == EAR_SMOOTHING_WINDOW:
+                    smoothed_ear = np.mean(ear_history)
+                else:
+                    smoothed_ear = ear
+
+                lip_dist = lip_distance(shape)
+
+                leftEyeHull = cv2.convexHull(leftEye)
+                rightEyeHull = cv2.convexHull(rightEye)
+                cv2.drawContours(frame, [leftEyeHull], -1, (0, 255, 0), 1)
+                cv2.drawContours(frame, [rightEyeHull], -1, (0, 255, 0), 1)
+
+                lipHull = cv2.convexHull(shape[48:60])
+                cv2.drawContours(frame, [lipHull], -1, (0, 255, 0), 1)
+
+            # Drowsiness detection (Eyes)
+            if face_detected_this_frame and smoothed_ear < EYE_AR_THRESH:
+                eye_counter += 1
+                if eye_counter >= EYE_AR_CONSEC_FRAMES and not alert_active_drowsy:
+                    current_alert_message = "DROWSINESS ALERT!"
+                    alert_active_drowsy = True
+                    trigger_alert()
             else:
-                smoothed_ear = ear
+                if face_detected_this_frame and smoothed_ear >= EYE_AR_THRESH and alert_active_drowsy:
+                    alert_active_drowsy = False
+                eye_counter = 0
+                
+            if not face_detected_this_frame:
+                face_alert()
 
-            lip_dist = lip_distance(shape)
+            # Yawn detection
+            if face_detected_this_frame and lip_dist > YAWN_THRESH:
+                yawn_counter += 1
+                if yawn_counter >= YAWN_CONSEC_FRAMES and not alert_active_yawn:
+                    current_alert_message = "YAWN DETECTED!"
+                    alert_active_yawn = True
+                    trigger_alert()
+            else:
+                if face_detected_this_frame and lip_dist <= YAWN_THRESH and alert_active_yawn:
+                    alert_active_yawn = False
+                yawn_counter = 0
 
-            leftEyeHull = cv2.convexHull(leftEye)
-            rightEyeHull = cv2.convexHull(rightEye)
-            cv2.drawContours(frame, [leftEyeHull], -1, (0, 255, 0), 1)
-            cv2.drawContours(frame, [rightEyeHull], -1, (0, 255, 0), 1)
-
-            lipHull = cv2.convexHull(shape[48:60]) # Assuming landmarks 48-59 are the outer lip contour
-            cv2.drawContours(frame, [lipHull], -1, (0, 255, 0), 1)
-
-
-        # Drowsiness detection (Eyes)
-        if face_detected_this_frame and smoothed_ear < EYE_AR_THRESH:
-            eye_counter += 1
-            if eye_counter >= EYE_AR_CONSEC_FRAMES and not alert_active_drowsy:
-                current_alert_message = "DROWSINESS ALERT!"
-                alert_active_drowsy = True
-                os.system("sudo python3 alert_sys_v1.py") # Consider non-blocking alternatives
-        else:
-            if face_detected_this_frame and smoothed_ear >= EYE_AR_THRESH and alert_active_drowsy:
+            # Display information
+            if not face_detected_this_frame:
+                current_alert_message = "No Face Detected"
+                eye_counter = 0
+                yawn_counter = 0
                 alert_active_drowsy = False
-            eye_counter = 0
-
-        # Yawn detection
-        if face_detected_this_frame and lip_dist > YAWN_THRESH:
-            yawn_counter += 1
-            if yawn_counter >= YAWN_CONSEC_FRAMES and not alert_active_yawn:
-                current_alert_message = "YAWN DETECTED!"
-                alert_active_yawn = True
-                os.system("sudo python3 alert_sys_v1.py") # Consider non-blocking alternatives
-        else:
-            if face_detected_this_frame and lip_dist <= YAWN_THRESH and alert_active_yawn:
                 alert_active_yawn = False
-            yawn_counter = 0
+                ear_history.clear()
+            elif alert_active_drowsy:
+                current_alert_message = "DROWSINESS ALERT!"
+            elif alert_active_yawn:
+                current_alert_message = "YAWN DETECTED!"
+            else:
+                current_alert_message = ""
 
-        # Display information
-        if not face_detected_this_frame:
-            current_alert_message = "No Face Detected"
-            eye_counter = 0
-            yawn_counter = 0
-            alert_active_drowsy = False
-            alert_active_yawn = False
-            ear_history.clear()
-        elif alert_active_drowsy:
-            current_alert_message = "DROWSINESS ALERT!"
-        elif alert_active_yawn:
-            current_alert_message = "YAWN DETECTED!"
-        else:
-            current_alert_message = ""
+            # Display EAR and Lip Distance
+            if face_detected_this_frame:
+                cv2.putText(frame, f"EAR: {ear:.2f} (S:{smoothed_ear:.2f})",
+                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                cv2.putText(frame, f"LIP: {lip_dist:.2f}",
+                           (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
-        # Display EAR and Lip Distance
-        if face_detected_this_frame:
-            cv2.putText(frame, f"EAR: {ear:.2f} (S:{smoothed_ear:.2f})",
-                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-            cv2.putText(frame, f"LIP: {lip_dist:.2f}",
-                       (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            # Display counters
+            text_y_pos = frame.shape[0] - 10
+            cv2.putText(frame, f"Yawn: {yawn_counter}/{YAWN_CONSEC_FRAMES}",
+                       (10, text_y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 0), 1)
+            text_y_pos -= 20
+            cv2.putText(frame, f"Eyes Closed: {eye_counter}/{EYE_AR_CONSEC_FRAMES}",
+                       (10, text_y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 0), 1)
 
-        # Display counters
-        text_y_pos = frame.shape[0] - 10
-        cv2.putText(frame, f"Yawn: {yawn_counter}/{YAWN_CONSEC_FRAMES}",
-                   (10, text_y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 0), 1)
-        text_y_pos -= 20
-        cv2.putText(frame, f"Eyes Closed: {eye_counter}/{EYE_AR_CONSEC_FRAMES}",
-                   (10, text_y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 0), 1)
+            # Display alert message
+            if current_alert_message:
+                text_size, _ = cv2.getTextSize(current_alert_message, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+                text_x = frame.shape[1] - text_size[0] - 10
+                text_y = 30
 
-        # Display alert message
-        if current_alert_message:
-            text_size, _ = cv2.getTextSize(current_alert_message, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
-            text_x = frame.shape[1] - text_size[0] - 10
-            text_y = 30
+                if "ALERT" in current_alert_message or "DETECTED" in current_alert_message or "No" in current_alert_message:
+                    cv2.rectangle(frame, (text_x - 5, text_y - text_size[1] - 5),
+                                (text_x + text_size[0] + 5, text_y + 5), (0, 0, 0), -1)
+                    cv2.putText(frame, current_alert_message, (text_x, text_y),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-            if "ALERT" in current_alert_message or "DETECTED" in current_alert_message:
-                cv2.rectangle(frame, (text_x - 5, text_y - text_size[1] - 5),
-                            (text_x + text_size[0] + 5, text_y + 5), (0, 0, 0), -1)
-                cv2.putText(frame, current_alert_message, (text_x, text_y),
-                          cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.imshow("Drowsiness Detector", frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q") or key == 27:  # 'q' or ESC
+                break
 
-        cv2.imshow("Drowsiness Detector", frame)
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord("q") or key == 27:  # 'q' or ESC
-            break
-
-    print("[INFO] Cleaning up...")
-    cv2.destroyAllWindows()
-    vs.release()
+    finally:
+        alert_process.terminate()
+        print("[INFO] Cleaning up...")
+        # Terminate any running alert process
+        if 'alert_process' in globals() and alert_process and alert_process.poll() is None:
+            alert_process.terminate()
+            alert_process.wait()
+        cv2.destroyAllWindows()
+        vs.release()
